@@ -67,12 +67,17 @@ st.sidebar.caption(
     "entre deux scénarios de vent ressorte du bruit. En dessous, les comparaisons ne sont "
     "pas interprétables."
 )
-graine_mc = st.sidebar.number_input("Graine aléatoire", value=0, step=1)
+def nouvelle_graine():
+    st.session_state["graine_mc"] = int(np.random.default_rng().integers(0, 2**32))
+
+
+graine_mc = st.sidebar.number_input("Graine aléatoire", value=0, step=1, key="graine_mc")
 st.sidebar.caption(
     "A et B partagent exactement les mêmes points d'éclosion et les mêmes flux aléatoires "
     "(nombres aléatoires communs) : à graine égale, l'écart mesuré est dû au vent, "
     "aux résidus de bruit près — que l'app chiffre."
 )
+st.sidebar.button("Relancer la simulation", on_click=nouvelle_graine, use_container_width=True)
 
 k, n = charger_grille(scenario, nx, ny, 42)
 
