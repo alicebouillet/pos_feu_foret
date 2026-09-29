@@ -228,27 +228,55 @@ def simuler_feu(k: np.ndarray, c0: tuple[int, int], conditions: Conditions, rng)
     return etat
 
 
-def calculer_alea(k: np.ndarray, conditions: Conditions, n_simulations: int = 400, graine: int = 0):
-    """Aléa par Monte-Carlo. La graine est fixée pour que deux scénarios comparés
-    partagent la même suite de points d'éclosion : l'écart observé vient alors du
-    modèle, pas du bruit d'échantillonnage."""
-    rng = np.random.default_rng(graine)
+def calculer_alea(
+    k: np.ndarray,
+    conditions: Conditions,
+    n_simulations: int = 400,
+    graine: int = 0,
+    n_maisons: np.ndarray | None = None,
+):
+    """Aléa par Monte-Carlo, avec nombres aléatoires communs (common random numbers).
+
+    Deux flux aléatoires SÉPARÉS, et c'est essentiel pour comparer deux scénarios :
+
+    - `rng_eclosion` ne sert qu'à tirer les points de départ. Comme il n'est jamais
+      touché par la propagation, la suite des points d'éclosion ne dépend que de la
+      graine : elle est identique d'un scénario à l'autre.
+    - chaque simulation m reçoit son propre flux de propagation, dérivé de (graine, m).
+      La simulation m de deux scénarios différents part donc du même point ET du même
+      flux ; seuls les seuils de probabilité changent.
+
+    Sans cette séparation, un feu qui se propage plus loin consomme plus de tirages,
+    désynchronise le générateur, et les deux scénarios comparés ne partagent plus
+    leurs points d'éclosion dès la deuxième simulation. L'écart mesuré mélange alors
+    l'effet du modèle et le bruit d'échantillonnage.
+
+    Si `n_maisons` est fourni, compte au passage le nombre de maisons brûlées dans
+    chaque simulation (sert à chiffrer l'incertitude Monte-Carlo sur R_tot, sans
+    refaire tourner les simulations).
+    """
     ny, nx = k.shape
     compteur = np.zeros((ny, nx), dtype=int)
     surfaces = np.zeros(n_simulations)
+    maisons = np.zeros(n_simulations)
 
     vegetation = np.argwhere(k > INCOMBUSTIBLE)
     if len(vegetation) == 0:
         raise ValueError("Aucune cellule combustible : impossible de tirer une éclosion.")
 
-    for m in range(n_simulations):
-        c0 = tuple(vegetation[rng.integers(0, len(vegetation))])
-        brulees = simuler_feu(k, c0, conditions, rng) == ETAT_BRULE
+    rng_eclosion = np.random.default_rng(graine)
+    indices_eclosion = rng_eclosion.integers(0, len(vegetation), size=n_simulations)
+
+    for m, idx in enumerate(indices_eclosion):
+        rng_propagation = np.random.default_rng([graine, m])
+        brulees = simuler_feu(k, tuple(vegetation[idx]), conditions, rng_propagation) == ETAT_BRULE
         compteur += brulees
         surfaces[m] = brulees.sum() * (DELTA**2) / 10_000  # en hectares
+        if n_maisons is not None:
+            maisons[m] = n_maisons[brulees].sum()
 
     p_brulage = compteur / n_simulations
-    return LAMBDA_FEU_AN * p_brulage, p_brulage, surfaces
+    return LAMBDA_FEU_AN * p_brulage, p_brulage, surfaces, maisons
 
 
 def calculer_risque(alea: np.ndarray, n: np.ndarray):
@@ -257,16 +285,28 @@ def calculer_risque(alea: np.ndarray, n: np.ndarray):
 
 
 def simuler_complet(k, n, conditions: Conditions, n_simulations: int = 400, graine: int = 0):
-    """Enchaîne aléa -> enjeu -> risque et renvoie un dictionnaire de résultats."""
-    alea, p_brulage, surfaces = calculer_alea(k, conditions, n_simulations, graine)
+    """Enchaîne aléa -> enjeu -> risque et renvoie un dictionnaire de résultats.
+
+    `r_tot_erreur_type` chiffre l'incertitude Monte-Carlo sur R_tot : un écart entre
+    deux scénarios plus petit que ~2 erreurs-types n'est pas interprétable.
+    """
+    alea, p_brulage, surfaces, maisons = calculer_alea(k, conditions, n_simulations, graine, n)
     enjeu, risque = calculer_risque(alea, n)
+
+    # R_tot = lambda * V_maison * V * moyenne(maisons brûlées par simulation),
+    # donc c'est une moyenne d'échantillon : son erreur-type est immédiate.
+    echelle = LAMBDA_FEU_AN * V_MAISON * VULNERABILITE
+    erreur_type = echelle * maisons.std(ddof=1) / np.sqrt(n_simulations) if n_simulations > 1 else 0.0
+
     return {
         "alea": alea,
         "p_brulage": p_brulage,
         "enjeu": enjeu,
         "risque": risque,
         "surfaces_ha": surfaces,
+        "maisons_brulees": maisons,
         "r_tot": float(risque.sum()),
+        "r_tot_erreur_type": float(erreur_type),
         "alea_moyen": float(p_brulage[k > INCOMBUSTIBLE].mean()),
         "surface_moyenne_ha": float(surfaces.mean()),
     }

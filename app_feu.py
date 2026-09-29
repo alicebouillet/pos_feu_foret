@@ -61,12 +61,17 @@ ny = st.sidebar.slider("Hauteur (cellules)", 20, 80, 40, step=10)
 st.sidebar.caption(f"Cellules de {mf.DELTA} m → domaine de {nx * mf.DELTA / 1000:.1f} × {ny * mf.DELTA / 1000:.1f} km")
 
 st.sidebar.header("Monte-Carlo")
-n_sim = st.sidebar.select_slider("Nombre de simulations", [50, 100, 200, 400, 800], value=200)
-st.sidebar.caption("Le doc de départ utilise N = 400. Moins = plus rapide mais plus bruité.")
+n_sim = st.sidebar.select_slider("Nombre de simulations", [50, 100, 200, 400, 800, 1600], value=400)
+st.sidebar.caption(
+    "N = 400 est la valeur du doc de départ, et c'est aussi le minimum pour qu'un écart "
+    "entre deux scénarios de vent ressorte du bruit. En dessous, les comparaisons ne sont "
+    "pas interprétables."
+)
 graine_mc = st.sidebar.number_input("Graine aléatoire", value=0, step=1)
 st.sidebar.caption(
-    "Les deux scénarios partagent la même graine : l'écart observé vient du vent, "
-    "pas du bruit d'échantillonnage."
+    "A et B partagent exactement les mêmes points d'éclosion et les mêmes flux aléatoires "
+    "(nombres aléatoires communs) : à graine égale, l'écart mesuré est dû au vent, "
+    "aux résidus de bruit près — que l'app chiffre."
 )
 
 k, n = charger_grille(scenario, nx, ny, 42)
@@ -111,18 +116,47 @@ vent_b = mf.Vent(dir_b, vit_b)
 # ---------------------------------------------------------------------------
 
 st.divider()
+
+
+def fr(x: float, signe: bool = False) -> str:
+    return f"{x:{'+' if signe else ''},.0f}".replace(",", " ")
+
+
+# Les deux scénarios partagent leurs points d'éclosion : les pertes sont appariées
+# simulation par simulation, donc l'incertitude sur l'ÉCART se calcule sur les paires
+# (et elle est plus petite que si les deux scénarios étaient tirés indépendamment).
+ecart = res_b["r_tot"] - res_a["r_tot"]
+diff_maisons = res_b["maisons_brulees"] - res_a["maisons_brulees"]
+echelle = mf.LAMBDA_FEU_AN * mf.V_MAISON * mf.VULNERABILITE
+se_ecart = echelle * diff_maisons.std(ddof=1) / np.sqrt(len(diff_maisons))
+
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Risque total A", f"{res_a['r_tot']:,.0f} €/an".replace(",", " "))
+m1.metric("Risque total A", f"{fr(res_a['r_tot'])} €/an", help=f"± {fr(res_a['r_tot_erreur_type'])} €/an (erreur-type Monte-Carlo)")
 m2.metric(
     "Risque total B",
-    f"{res_b['r_tot']:,.0f} €/an".replace(",", " "),
-    delta=f"{res_b['r_tot'] - res_a['r_tot']:+,.0f} €/an".replace(",", " "),
+    f"{fr(res_b['r_tot'])} €/an",
+    delta=f"{fr(ecart, signe=True)} €/an",
+    help=f"± {fr(res_b['r_tot_erreur_type'])} €/an (erreur-type Monte-Carlo)",
 )
 m3.metric("Aléa moyen A → B", f"{res_a['alea_moyen']:.3f} → {res_b['alea_moyen']:.3f}")
 m4.metric(
     "Surface brûlée moyenne A → B",
     f"{res_a['surface_moyenne_ha']:.0f} → {res_b['surface_moyenne_ha']:.0f} ha",
 )
+
+st.caption(
+    f"Incertitude Monte-Carlo : A = {fr(res_a['r_tot'])} ± {fr(res_a['r_tot_erreur_type'])} €/an, "
+    f"B = {fr(res_b['r_tot'])} ± {fr(res_b['r_tot_erreur_type'])} €/an. "
+    f"Écart B − A = {fr(ecart, signe=True)} ± {fr(se_ecart)} €/an (erreur-type appariée)."
+)
+
+if abs(ecart) < 2 * se_ecart:
+    st.warning(
+        f"**Écart non significatif.** L'écart entre A et B ({fr(ecart, signe=True)} €/an) est plus petit "
+        f"que 2 erreurs-types ({fr(2 * se_ecart)} €/an) : il est indiscernable du bruit d'échantillonnage. "
+        "Augmente le nombre de simulations, ou choisis un territoire comptant plus de maisons.",
+        icon="⚠️",
+    )
 
 # ---------------------------------------------------------------------------
 # Avertissement de régime (percolation / saturation)
@@ -181,7 +215,7 @@ def fleche_vent(ax, vent: mf.Vent):
     )
 
 
-def paire_de_cartes(champ: str, titre: str, unite: str):
+def paire_de_cartes(champ: str, titre: str, unite: str = ""):
     vmax = max(res_a[champ].max(), res_b[champ].max())
     vmax = vmax if vmax > 0 else 1.0
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
@@ -194,7 +228,7 @@ def paire_de_cartes(champ: str, titre: str, unite: str):
             fontsize=10,
         )
         fleche_vent(ax, vent)
-    fig.colorbar(im, ax=list(axes[1:]), fraction=0.03, pad=0.02, label=f"{titre} {unite}")
+    fig.colorbar(im, ax=list(axes[1:]), fraction=0.03, pad=0.02, label=f"{titre} {unite}".strip())
 
     for ax in axes:
         ax.set_xticks([])
@@ -203,8 +237,12 @@ def paire_de_cartes(champ: str, titre: str, unite: str):
 
 
 with onglet_alea:
-    st.pyplot(paire_de_cartes("alea", "Aléa A(c)", "[fréq. annuelle]"), use_container_width=True)
-    st.caption("Échelle de couleur commune aux deux scénarios : les cartes sont directement comparables.")
+    st.pyplot(paire_de_cartes("alea", "Aléa A(c)"), use_container_width=True)
+    st.caption(
+        f"A(c) = λ · P̂(brûlage), avec λ = {mf.LAMBDA_FEU_AN} départ de feu par an sur le domaine : "
+        "à lire comme la part d'années où la cellule brûle. "
+        "Échelle de couleur commune aux deux scénarios, donc directement comparables."
+    )
 
 with onglet_risque:
     st.pyplot(paire_de_cartes("risque", "Risque R(c)", "[€/an]"), use_container_width=True)
