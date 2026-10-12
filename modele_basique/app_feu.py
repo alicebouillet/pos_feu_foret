@@ -181,7 +181,7 @@ st.caption(
     "cellulaire stochastique ; le vent déforme les probabilités de propagation."
 )
 
-with st.expander("📘 Guide de prise en main et formules du modèle", expanded=False):
+with st.expander("📘 Guide de prise en main et formules du modèle", expanded=True):
     afficher_documentation()
 
 # ---------------------------------------------------------------------------

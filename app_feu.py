@@ -31,96 +31,6 @@ def nom_direction(deg: float) -> str:
     return ROSE[int((deg % 360) / 22.5 + 0.5) % 16]
 
 
-def afficher_documentation():
-    st.subheader("Prise en main")
-    st.markdown(
-        f"""
-1. Choisissez un territoire synthétique (lisière forêt/lande, hameau en forêt ou
-   maisons près d'une route), puis sa largeur et sa hauteur. Une cellule mesure
-   **{mf.DELTA} m** de côté ; gris = incombustible, vert clair = lande, vert foncé = forêt.
-2. Choisissez le nombre de simulations Monte-Carlo : plus il est grand, plus le
-   bruit statistique diminue, mais plus le calcul est long.
-3. Réglez les vents A et B. La direction indique le cap **vers lequel** souffle
-   le vent (0° nord, 90° est, 180° sud, 270° ouest) ; la vitesse se règle en km/h.
-4. Comparez les indicateurs, les cartes d'aléa et de risque et les surfaces brûlées.
-   Les deux scénarios partagent les mêmes tirages aléatoires.
-5. Changez la graine aléatoire ou cliquez sur **Relancer la simulation** pour
-   obtenir un nouvel échantillon. À graine égale, les résultats sont reproductibles.
-"""
-    )
-
-    st.subheader("Lire les résultats")
-    st.markdown(
-        """
-- **Aléa A(c)** : fréquence annuelle attendue de brûlage de la cellule.
-- **Enjeu E(c)** : valeur totale des maisons de la cellule, en euros.
-- **Risque R(c)** : perte annuelle attendue, en euros/an ; il est nul sans maison.
-- Le **risque total** est la somme des risques de toutes les cellules.
-- L'écart est **B − A**. S'il est inférieur à environ deux erreurs-types, il
-  n'est pas distinguable du bruit de simulation ; augmentez le nombre de tirages.
-
-Les territoires et maisons sont synthétiques, et les résultats ne sont pas des
-prévisions calibrées pour un territoire réel.
-"""
-    )
-
-    st.subheader("Formules et hypothèses")
-    st.markdown("Probabilité de propagation vers une cellule voisine réceptrice `c'` :")
-    st.latex(
-        r"p(c \to c') = \min\!\left(P_k(c')\,f_{\mathrm{vent}}\,"
-        r"f_{\mathrm{pente}}\,f_{\mathrm{humidite}},\,1\right)"
-    )
-    st.markdown(
-        f"""
-`P_k` vaut 0 pour l'incombustible, {mf.P_K[mf.LANDE]:.2f} pour la lande et
-{mf.P_K[mf.FORET]:.2f} pour la forêt. Le feu tente de progresser vers les quatre
-voisines cardinales. Les facteurs de pente et d'humidité valent actuellement 1
-et n'ont donc pas d'effet.
-
-Pour un angle `θ` entre le déplacement et le vent, et une vitesse `v` en km/h :
-"""
-    )
-    st.latex(
-        r"f_{\mathrm{vent}}(\theta,v) = "
-        r"\left[\max\!\left(1{,}15 + 0{,}9\cos\theta + "
-        r"0{,}15\cos(2\theta),\,0{,}01\right)\right]^{v/20}"
-    )
-    st.markdown(
-        f"""
-À {mf.VITESSE_REFERENCE:.0f} km/h, le facteur vaut 2,2 sous le vent, 1 en travers
-et 0,4 contre le vent ; à vent nul, il vaut 1 dans toutes les directions.
-La probabilité est plafonnée à 1.
-"""
-    )
-    st.latex(
-        r"\widehat{P}_{\mathrm{brulage}}(c) = "
-        r"\frac{1}{N}\sum_{m=1}^{N}"
-        r"\mathbf{1}\!\left[c\ \text{brûle lors de la simulation }m\right]"
-    )
-    st.latex(
-        rf"A(c) = \lambda\,\widehat{{P}}_{{\mathrm{{brulage}}}}(c),"
-        rf"\qquad \lambda = {mf.LAMBDA_FEU_AN:g}\ \mathrm{{départ/an}}"
-    )
-    st.latex(
-        rf"E(c) = n(c)\,V_{{\mathrm{{maison}}}},"
-        rf"\qquad V_{{\mathrm{{maison}}}} = {mf.V_MAISON:,}\ \mathrm{{€}}"
-        .replace(",", r"\,")
-    )
-    st.latex(
-        rf"R(c) = A(c)\,E(c)\,V,"
-        rf"\qquad V = {mf.VULNERABILITE:g}"
-    )
-    st.markdown(
-        f"""
-`n(c)` est le nombre de maisons, `V` la part de valeur perdue en cas de brûlage,
-et `R_tot = Σ_c R(c)`. Le modèle suppose notamment un vent uniforme et constant,
-des départs uniformes dans la végétation, sans sautes de feu ni intervention des
-secours. La pente, l'humidité et la variabilité réelle de la vulnérabilité ne sont
-pas modélisées.
-"""
-    )
-
-
 # ---------------------------------------------------------------------------
 # Calculs (mis en cache : bouger un curseur ne recalcule que le scénario touché)
 # ---------------------------------------------------------------------------
@@ -132,9 +42,20 @@ def charger_grille(scenario: str, nx: int, ny: int, graine: int):
 
 
 @st.cache_data(show_spinner=False)
-def lancer_simulation(scenario, nx, ny, graine_grille, direction, vitesse, n_sim, graine_mc):
+def charger_relief(forme, nx, ny, pente_deg, direction_montee):
+    return mf.generer_relief(forme, nx, ny, pente_deg, direction_montee)
+
+
+@st.cache_data(show_spinner=False)
+def lancer_simulation(
+    scenario, nx, ny, graine_grille, direction, vitesse, n_sim, graine_mc,
+    forme_relief, pente_deg, direction_montee,
+):
     k, n = charger_grille(scenario, nx, ny, graine_grille)
-    conditions = mf.Conditions(vent=mf.Vent(direction_deg=direction, vitesse_kmh=vitesse))
+    z = charger_relief(forme_relief, nx, ny, pente_deg, direction_montee)
+    conditions = mf.Conditions(
+        vent=mf.Vent(direction_deg=direction, vitesse_kmh=vitesse), altitudes=z
+    )
     return mf.simuler_complet(k, n, conditions, n_sim, graine_mc)
 
 
@@ -150,6 +71,28 @@ nx = st.sidebar.slider("Largeur (cellules)", 30, 100, 60, step=10)
 ny = st.sidebar.slider("Hauteur (cellules)", 20, 80, 40, step=10)
 st.sidebar.caption(f"Cellules de {mf.DELTA} m → domaine de {nx * mf.DELTA / 1000:.1f} × {ny * mf.DELTA / 1000:.1f} km")
 
+st.sidebar.header("Relief")
+libelle_relief = st.sidebar.selectbox("Forme du terrain", list(mf.RELIEFS.keys()))
+forme_relief = mf.RELIEFS[libelle_relief]
+
+if forme_relief == "plat":
+    pente_deg, direction_montee = 0.0, 90.0
+else:
+    pente_deg = st.sidebar.slider("Pente maximale (°)", 0, 25, 5, step=1)
+    direction_montee = (
+        st.sidebar.slider("Cap vers lequel le terrain monte", 0, 359, 90, step=5)
+        if forme_relief == "versant"
+        else 90.0
+    )
+
+z = charger_relief(forme_relief, nx, ny, pente_deg, direction_montee)
+info_relief = mf.resume_relief(z)
+if z is not None:
+    st.sidebar.caption(
+        f"Dénivelé {info_relief['denivele_m']:.0f} m — pente max {info_relief['pente_max_deg']:.1f}° "
+        f"→ le feu se propage {info_relief['facteur_max']:.1f}× plus facilement en montée."
+    )
+
 st.sidebar.header("Monte-Carlo")
 n_sim = st.sidebar.select_slider("Nombre de simulations", [50, 100, 200, 400, 800, 1600], value=400)
 st.sidebar.caption(
@@ -157,17 +100,14 @@ st.sidebar.caption(
     "entre deux scénarios de vent ressorte du bruit. En dessous, les comparaisons ne sont "
     "pas interprétables."
 )
-def nouvelle_graine():
-    st.session_state["graine_mc"] = int(np.random.default_rng().integers(0, 2**32))
-
-
-graine_mc = st.sidebar.number_input("Graine aléatoire", value=0, step=1, key="graine_mc")
+graine_mc = st.sidebar.number_input("Graine aléatoire", value=0, step=1)
 st.sidebar.caption(
-    "A et B partagent exactement les mêmes points d'éclosion et les mêmes flux aléatoires "
-    "(nombres aléatoires communs) : à graine égale, l'écart mesuré est dû au vent, "
-    "aux résidus de bruit près — que l'app chiffre."
+    f"Chaque simulation tire **son propre** point de départ au hasard dans la végétation : "
+    f"{n_sim} simulations = {n_sim} départs dispersés sur tout le massif. "
+    "Ce qui est partagé entre A et B, c'est la *liste* de ces départs — la simulation n°7 de A "
+    "part du même endroit que la n°7 de B — pour que l'écart mesuré vienne du vent et non du "
+    "hasard du tirage."
 )
-st.sidebar.button("Relancer la simulation", on_click=nouvelle_graine, use_container_width=True)
 
 k, n = charger_grille(scenario, nx, ny, 42)
 
@@ -175,14 +115,12 @@ k, n = charger_grille(scenario, nx, ny, 42)
 # En-tête
 # ---------------------------------------------------------------------------
 
-st.title("Risque feux de forêt — effet du vent")
+st.title("Risque feux de forêt — effet du vent et du relief")
 st.caption(
     "R = Aléa × Enjeu × Vulnérabilité. L'aléa est estimé par Monte-Carlo sur un automate "
-    "cellulaire stochastique ; le vent déforme les probabilités de propagation."
+    "cellulaire stochastique ; le vent et la pente déforment les probabilités de propagation "
+    "(`p = p_combustible × f_vent × f_pente`)."
 )
-
-with st.expander("📘 Guide de prise en main et formules du modèle", expanded=False):
-    afficher_documentation()
 
 # ---------------------------------------------------------------------------
 # Réglage des deux scénarios de vent
@@ -203,8 +141,9 @@ with col_b:
     st.caption(f"Vent soufflant vers le **{nom_direction(dir_b)}** à {vit_b} km/h")
 
 with st.spinner("Simulation en cours…"):
-    res_a = lancer_simulation(scenario, nx, ny, 42, dir_a, vit_a, n_sim, graine_mc)
-    res_b = lancer_simulation(scenario, nx, ny, 42, dir_b, vit_b, n_sim, graine_mc)
+    args_relief = (forme_relief, pente_deg, direction_montee)
+    res_a = lancer_simulation(scenario, nx, ny, 42, dir_a, vit_a, n_sim, graine_mc, *args_relief)
+    res_b = lancer_simulation(scenario, nx, ny, 42, dir_b, vit_b, n_sim, graine_mc, *args_relief)
 
 vent_a = mf.Vent(dir_a, vit_a)
 vent_b = mf.Vent(dir_b, vit_b)
@@ -261,10 +200,14 @@ if abs(ecart) < 2 * se_ecart:
 # ---------------------------------------------------------------------------
 
 for nom, vent in [("A", vent_a), ("B", vent_b)]:
-    diag = mf.diagnostic_regime(vent)
+    diag = mf.diagnostic_regime(vent, z)
+    detail = f"vent ×{diag['f_vent_max']:.2f}"
+    if z is not None:
+        detail += f", pente ×{diag['f_pente_max']:.2f}"
     texte = (
         f"**Scénario {nom} — régime {diag['regime']}** "
-        f"(p forêt sous le vent = {diag['p_foret_brut']:.2f}, seuil de percolation = {mf.P_CRITIQUE}). "
+        f"(p forêt dans la direction la plus favorable = {min(diag['p_foret_brut'], 1):.2f} "
+        f"[{detail}], seuil de percolation = {mf.P_CRITIQUE}). "
         f"{diag['message']}"
     )
     if diag["regime"] == "saturé":
@@ -274,11 +217,19 @@ for nom, vent in [("A", vent_a), ("B", vent_b)]:
     else:
         st.success(texte, icon="✅")
 
-v_sat_a, v_sat_b = mf.vitesse_de_saturation(dir_a), mf.vitesse_de_saturation(dir_b)
-st.caption(
-    f"Vitesse de saturation : {v_sat_a:.0f} km/h pour la direction de A, "
-    f"{v_sat_b:.0f} km/h pour celle de B. Au-delà, augmenter le vent n'a plus aucun effet."
-)
+v_sat_a, v_sat_b = mf.vitesse_de_saturation(dir_a, z), mf.vitesse_de_saturation(dir_b, z)
+if v_sat_a == 0 or v_sat_b == 0:
+    st.caption(
+        "⚠️ La pente seule suffit à saturer la propagation : au-delà de 10,2° de pente montante, "
+        f"p = {mf.P_K[mf.FORET]} × exp(0,078 × θ) dépasse déjà 1 à vent nul. Le curseur de vent "
+        "n'a plus aucun effet en montée, quelle que soit sa valeur."
+    )
+else:
+    st.caption(
+        f"Vitesse de saturation : {v_sat_a:.0f} km/h pour la direction de A, "
+        f"{v_sat_b:.0f} km/h pour celle de B. Au-delà, augmenter le vent n'a plus aucun effet. "
+        + ("La pente en consomme déjà une partie." if z is not None else "")
+    )
 
 # ---------------------------------------------------------------------------
 # Cartes
@@ -294,7 +245,13 @@ def carte_territoire(ax):
     ax.imshow(k, cmap=CMAP_COMBUSTIBLE, norm=NORM_COMBUSTIBLE, origin="upper")
     ys, xs = np.nonzero(n)
     ax.scatter(xs, ys, s=12, c="#c0392b", marker="s", label="maison(s)")
-    ax.set_title("Territoire", fontsize=10)
+    titre = "Territoire"
+    if z is not None:
+        # courbes de niveau par-dessus le combustible
+        niveaux = ax.contour(z, levels=7, colors="#2b2b2b", linewidths=0.7, alpha=0.75)
+        ax.clabel(niveaux, inline=True, fontsize=6, fmt="%.0f m")
+        titre += f" + relief ({info_relief['denivele_m']:.0f} m de dénivelé)"
+    ax.set_title(titre, fontsize=10)
     ax.legend(loc="lower right", fontsize=7)
 
 
@@ -338,9 +295,50 @@ with onglet_alea:
     st.pyplot(paire_de_cartes("alea", "Aléa A(c)"), use_container_width=True)
     st.caption(
         f"A(c) = λ · P̂(brûlage), avec λ = {mf.LAMBDA_FEU_AN} départ de feu par an sur le domaine : "
-        "fréquence annuelle attendue de brûlage de la cellule. "
+        "à lire comme la part d'années où la cellule brûle. "
         "Échelle de couleur commune aux deux scénarios, donc directement comparables."
     )
+    st.info(
+        f"**Ces cartes ne sont pas des feux.** Chacune superpose {n_sim} feux partis de "
+        f"{n_sim} endroits différents, tirés au hasard dans la végétation. Un feu isolé, lui, "
+        "est une tache compacte — déplie ci-dessous pour en voir.",
+        icon="💡",
+    )
+
+    with st.expander("Voir des feux individuels (et leurs points de départ)"):
+        scenario_vu = st.radio(
+            "Scénario", ["A", "B"], horizontal=True, key="choix_scenario_individuel"
+        )
+        vent_vu = vent_a if scenario_vu == "A" else vent_b
+
+        vegetation = np.argwhere(k > mf.INCOMBUSTIBLE)
+        indices = np.random.default_rng(graine_mc).integers(0, len(vegetation), size=n_sim)
+        conditions_vu = mf.Conditions(vent=vent_vu, altitudes=z)
+
+        fig, axes = plt.subplots(1, 4, figsize=(16, 3.6))
+        for ax, m in zip(axes, range(4)):
+            etat = mf.simuler_feu(
+                k, tuple(vegetation[indices[m]]), conditions_vu,
+                np.random.default_rng([graine_mc, m]),
+            )
+            brulees = etat == mf.ETAT_BRULE
+            ax.imshow(k, cmap=CMAP_COMBUSTIBLE, norm=NORM_COMBUSTIBLE, origin="upper", alpha=0.35)
+            ax.imshow(
+                np.ma.masked_where(~brulees, brulees.astype(float)),
+                cmap=ListedColormap(["#b5341f"]), origin="upper", vmin=0, vmax=1,
+            )
+            y0, x0 = vegetation[indices[m]]
+            ax.plot(x0, y0, marker="*", ms=15, color="#111", mec="white", mew=1.2)
+            ax.set_title(
+                f"Simulation n°{m + 1} — {brulees.sum() * mf.DELTA**2 / 10_000:.0f} ha",
+                fontsize=10,
+            )
+            ax.set_xticks([]); ax.set_yticks([])
+        st.pyplot(fig, use_container_width=True)
+        st.caption(
+            "L'étoile marque le point de départ : il change à chaque simulation. "
+            f"La carte d'aléa ci-dessus est la moyenne de {n_sim} feux comme ceux-là."
+        )
 
 with onglet_risque:
     st.pyplot(paire_de_cartes("risque", "Risque R(c)", "[€/an]"), use_container_width=True)
@@ -400,13 +398,19 @@ with st.expander("Hypothèses du modèle (et ce qu'il reste à lever)"):
 | H2 | Une seule tentative par interface | encore active — percolation, seuil à 0,5 |
 | H3 | p ne dépend que de la cellule réceptrice | encore active |
 | H4 | Vent fixe, uniforme, constant | **partiellement levée** — direction et vitesse réglables, mais toujours uniformes dans l'espace et constantes dans le temps |
-| H5 | Pas de pente | encore active — `facteur_pente()` à implémenter |
+| H5 | Pas de pente | **levée** — `f_pente = exp(0,078·θ)`, θ en degrés, d'après Alexandridis et al. (2008) ; double tous les 10° de montée |
 | H6 | Éclosion uniforme dans la végétation | encore active |
 | H7 | Pas de sautes de feu (brandons) | encore active |
 | H8 | V constante (0,6) | encore active |
 | H9 | Pas d'intervention des secours | encore active |
 
-L'humidité n'apparaît pas dans la liste d'origine : elle rejoindra `facteur_humidite()`,
-au même titre que la pente.
+L'humidité n'apparaît pas dans la liste d'origine : elle reste à brancher dans
+`facteur_humidite()`.
+
+**Attention** : la pente consomme très vite la marge avant saturation. Au-delà de
+**10,2°** de pente montante, `p = 0,45 × exp(0,078·θ)` dépasse 1 à vent nul : la
+propagation en montée devient certaine et le modèle n'est plus stochastique dans
+cette direction. Le temps de résidence τ (H2) est donc à traiter en priorité, avant
+d'exploiter sérieusement le relief.
         """
     )
