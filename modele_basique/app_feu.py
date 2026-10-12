@@ -31,6 +31,96 @@ def nom_direction(deg: float) -> str:
     return ROSE[int((deg % 360) / 22.5 + 0.5) % 16]
 
 
+def afficher_documentation():
+    st.subheader("Prise en main")
+    st.markdown(
+        f"""
+1. Choisissez un territoire synthétique (lisière forêt/lande, hameau en forêt ou
+   maisons près d'une route), puis sa largeur et sa hauteur. Une cellule mesure
+   **{mf.DELTA} m** de côté ; gris = incombustible, vert clair = lande, vert foncé = forêt.
+2. Choisissez le nombre de simulations Monte-Carlo : plus il est grand, plus le
+   bruit statistique diminue, mais plus le calcul est long.
+3. Réglez les vents A et B. La direction indique le cap **vers lequel** souffle
+   le vent (0° nord, 90° est, 180° sud, 270° ouest) ; la vitesse se règle en km/h.
+4. Comparez les indicateurs, les cartes d'aléa et de risque et les surfaces brûlées.
+   Les deux scénarios partagent les mêmes tirages aléatoires.
+5. Changez la graine aléatoire ou cliquez sur **Relancer la simulation** pour
+   obtenir un nouvel échantillon. À graine égale, les résultats sont reproductibles.
+"""
+    )
+
+    st.subheader("Lire les résultats")
+    st.markdown(
+        """
+- **Aléa A(c)** : fréquence annuelle attendue de brûlage de la cellule.
+- **Enjeu E(c)** : valeur totale des maisons de la cellule, en euros.
+- **Risque R(c)** : perte annuelle attendue, en euros/an ; il est nul sans maison.
+- Le **risque total** est la somme des risques de toutes les cellules.
+- L'écart est **B − A**. S'il est inférieur à environ deux erreurs-types, il
+  n'est pas distinguable du bruit de simulation ; augmentez le nombre de tirages.
+
+Les territoires et maisons sont synthétiques, et les résultats ne sont pas des
+prévisions calibrées pour un territoire réel.
+"""
+    )
+
+    st.subheader("Formules et hypothèses")
+    st.markdown("Probabilité de propagation vers une cellule voisine réceptrice `c'` :")
+    st.latex(
+        r"p(c \to c') = \min\!\left(P_k(c')\,f_{\mathrm{vent}}\,"
+        r"f_{\mathrm{pente}}\,f_{\mathrm{humidite}},\,1\right)"
+    )
+    st.markdown(
+        f"""
+`P_k` vaut 0 pour l'incombustible, {mf.P_K[mf.LANDE]:.2f} pour la lande et
+{mf.P_K[mf.FORET]:.2f} pour la forêt. Le feu tente de progresser vers les quatre
+voisines cardinales. Les facteurs de pente et d'humidité valent actuellement 1
+et n'ont donc pas d'effet.
+
+Pour un angle `θ` entre le déplacement et le vent, et une vitesse `v` en km/h :
+"""
+    )
+    st.latex(
+        r"f_{\mathrm{vent}}(\theta,v) = "
+        r"\left[\max\!\left(1{,}15 + 0{,}9\cos\theta + "
+        r"0{,}15\cos(2\theta),\,0{,}01\right)\right]^{v/20}"
+    )
+    st.markdown(
+        f"""
+À {mf.VITESSE_REFERENCE:.0f} km/h, le facteur vaut 2,2 sous le vent, 1 en travers
+et 0,4 contre le vent ; à vent nul, il vaut 1 dans toutes les directions.
+La probabilité est plafonnée à 1.
+"""
+    )
+    st.latex(
+        r"\widehat{P}_{\mathrm{brulage}}(c) = "
+        r"\frac{1}{N}\sum_{m=1}^{N}"
+        r"\mathbf{1}\!\left[c\ \text{brûle lors de la simulation }m\right]"
+    )
+    st.latex(
+        rf"A(c) = \lambda\,\widehat{{P}}_{{\mathrm{{brulage}}}}(c),"
+        rf"\qquad \lambda = {mf.LAMBDA_FEU_AN:g}\ \mathrm{{départ/an}}"
+    )
+    st.latex(
+        rf"E(c) = n(c)\,V_{{\mathrm{{maison}}}},"
+        rf"\qquad V_{{\mathrm{{maison}}}} = {mf.V_MAISON:,}\ \mathrm{{€}}"
+        .replace(",", r"\,")
+    )
+    st.latex(
+        rf"R(c) = A(c)\,E(c)\,V,"
+        rf"\qquad V = {mf.VULNERABILITE:g}"
+    )
+    st.markdown(
+        f"""
+`n(c)` est le nombre de maisons, `V` la part de valeur perdue en cas de brûlage,
+et `R_tot = Σ_c R(c)`. Le modèle suppose notamment un vent uniforme et constant,
+des départs uniformes dans la végétation, sans sautes de feu ni intervention des
+secours. La pente, l'humidité et la variabilité réelle de la vulnérabilité ne sont
+pas modélisées.
+"""
+    )
+
+
 # ---------------------------------------------------------------------------
 # Calculs (mis en cache : bouger un curseur ne recalcule que le scénario touché)
 # ---------------------------------------------------------------------------
@@ -90,6 +180,9 @@ st.caption(
     "R = Aléa × Enjeu × Vulnérabilité. L'aléa est estimé par Monte-Carlo sur un automate "
     "cellulaire stochastique ; le vent déforme les probabilités de propagation."
 )
+
+with st.expander("📘 Guide de prise en main et formules du modèle", expanded=False):
+    afficher_documentation()
 
 # ---------------------------------------------------------------------------
 # Réglage des deux scénarios de vent
@@ -194,9 +287,7 @@ st.caption(
 st.divider()
 st.subheader("Cartes")
 
-onglet_alea, onglet_risque, onglet_documentation = st.tabs(
-    ["Aléa A(c)", "Risque R(c)", "Documentation"]
-)
+onglet_alea, onglet_risque = st.tabs(["Aléa A(c)", "Risque R(c)"])
 
 
 def carte_territoire(ax):
@@ -254,134 +345,6 @@ with onglet_alea:
 with onglet_risque:
     st.pyplot(paire_de_cartes("risque", "Risque R(c)", "[€/an]"), use_container_width=True)
     st.caption("Le risque ne s'allume que là où l'aléa rencontre des maisons (enjeu non nul).")
-
-with onglet_documentation:
-    st.header("Documentation — prise en main et modèle")
-
-    st.subheader("Prise en main")
-    st.markdown(
-        f"""
-1. Dans la barre latérale **Territoire**, choisissez un des trois territoires-types.
-   Les choix sont une lisière forêt/lande avec hameau, un hameau en forêt ou des
-   maisons isolées près d'une route. Ce sont des territoires synthétiques, pas
-   des cartes géographiques réelles. Réglez la largeur (30–100 cellules) et la
-   hauteur (20–80 cellules) : une cellule représente **{mf.DELTA} m** de côté.
-   Sur les cartes, le gris représente l'incombustible, le vert clair la lande
-   et le vert foncé la forêt.
-2. Dans **Monte-Carlo**, choisissez de 50 à 1 600 simulations. Une valeur élevée
-   réduit le bruit statistique, mais augmente le temps de calcul.
-3. Réglez les vents des scénarios **A** et **B** : direction de 0° à 359° et
-   vitesse de 0 à 50 km/h. La direction est le cap **vers lequel** souffle le
-   vent : 0° = nord, 90° = est, 180° = sud et 270° = ouest.
-4. Comparez les indicateurs, les cartes d'aléa et de risque, puis l'histogramme
-   des surfaces brûlées. Les deux scénarios utilisent le même territoire et les
-   mêmes tirages aléatoires afin de rendre la comparaison plus fiable.
-5. Changez la **graine aléatoire** ou cliquez sur **Relancer la simulation**
-   pour produire un nouvel échantillon. À graine identique, les résultats sont
-   reproductibles.
-"""
-    )
-
-    st.subheader("Ce que représentent les résultats")
-    st.markdown(
-        """
-- **Aléa A(c)** : fréquence annuelle attendue de brûlage de la cellule c, en
-  départs par an. Il est nul sur une cellule incombustible.
-- **Enjeu E(c)** : valeur des maisons présentes dans la cellule, en euros.
-- **Risque R(c)** : perte annuelle attendue associée aux maisons de la cellule,
-  en euros par an. Le risque est nul lorsqu'il n'y a pas de maison.
-- **Risque total** : somme des risques de toutes les cellules. L'écart affiché
-  est celui du scénario B moins celui du scénario A.
-- **Erreur-type Monte-Carlo** : mesure le bruit lié au nombre fini de simulations.
-  Un écart inférieur à environ deux erreurs-types n'est pas distinguable de ce
-  bruit avec cet échantillon ; augmentez alors le nombre de simulations.
-
-Les couleurs des cartes A et B partagent la même échelle pour permettre une
-comparaison visuelle directe.
-"""
-    )
-
-    st.subheader("Formules utilisées")
-    st.markdown(
-        """
-Pour chaque propagation d'une cellule en feu vers une cellule voisine réceptrice
-`c'`, la probabilité de brûlage est :
-"""
-    )
-    st.latex(
-        r"p(c \to c') = \min\!\left(P_k(c')\,f_{\mathrm{vent}}\,"
-        r"f_{\mathrm{pente}}\,f_{\mathrm{humidite}},\,1\right)"
-    )
-    st.markdown(
-        f"""
-`P_k` dépend du combustible de la cellule réceptrice : **incombustible = 0**,
-**lande = {mf.P_K[mf.LANDE]:.2f}**, **forêt = {mf.P_K[mf.FORET]:.2f}**.
-Le feu ne tente de progresser que vers les quatre cellules cardinales (nord,
-sud, est, ouest). Les facteurs de pente et d'humidité valent actuellement 1 :
-ils n'ont donc **aucun effet** sur les résultats.
-
-L'effet du vent dépend de l'angle `θ` entre le déplacement et le cap du vent :
-"""
-    )
-    st.latex(
-        r"f_{\mathrm{vent}}(\theta,v) = "
-        r"\left[\max\!\left(1{,}15 + 0{,}9\cos\theta + "
-        r"0{,}15\cos(2\theta),\,0{,}01\right)\right]^{v/20}"
-    )
-    st.markdown(
-        f"""
-Les angles du cosinus sont convertis en radians dans le calcul et `v` est la
-vitesse en km/h. À **{mf.VITESSE_REFERENCE:.0f} km/h**, le facteur vaut 2,2 dans
-la direction du vent, 1 à 90° du vent et 0,4 à l'opposé ; à vent nul, il vaut 1
-dans toutes les directions. La probabilité finale est plafonnée à 1.
-
-Pour `N` simulations indépendantes, chacune avec un départ tiré uniformément
-parmi les cellules végétalisées, la fréquence estimée de brûlage de la cellule
-`c` est :
-"""
-    )
-    st.latex(
-        r"\widehat{P}_{\mathrm{brulage}}(c) = "
-        r"\frac{1}{N}\sum_{m=1}^{N}"
-        r"\mathbf{1}\!\left[c\ \text{brûle lors de la simulation }m\right]"
-    )
-    st.latex(
-        rf"A(c) = \lambda\,\widehat{{P}}_{{\mathrm{{brulage}}}}(c),"
-        rf"\qquad \lambda = {mf.LAMBDA_FEU_AN:g}\ \mathrm{{départ/an}}"
-    )
-    st.latex(
-        rf"E(c) = n(c)\,V_{{\mathrm{{maison}}}},"
-        rf"\qquad V_{{\mathrm{{maison}}}} = {mf.V_MAISON:,}\ \mathrm{{€}}"
-        .replace(",", r"\,")
-    )
-    st.latex(
-        rf"R(c) = A(c)\,E(c)\,V,"
-        rf"\qquad V = {mf.VULNERABILITE:g}"
-    )
-    st.markdown(
-        """
-`n(c)` est le nombre de maisons dans la cellule et `V` le taux de vulnérabilité
-(fraction de valeur perdue en cas de brûlage). Le risque total affiché est
-`R_tot = Σ_c R(c)`. Il s'agit d'une estimation de modèle, et non d'une prévision
-calibrée à un territoire réel.
-"""
-    )
-
-    st.subheader("Hypothèses et limites")
-    st.markdown(
-        """
-- Les territoires et les emplacements de maisons sont synthétiques ; le départ
-  est uniforme dans la végétation et la fréquence de départs `λ` est fixe.
-- La propagation est stochastique, de proche en proche, sur les quatre voisines.
-  Il n'y a ni sautes de feu, ni intervention des secours.
-- Le vent est uniforme sur le domaine et constant pendant une simulation.
-- La pente, l'humidité et la variabilité réelle de la vulnérabilité ne sont pas
-  encore prises en compte.
-- Les alertes de régime sous-critique ou saturé signalent les limites du modèle :
-  une probabilité de propagation saturée à 1 n'est plus stochastique dans cette
-  direction.
-"""
-    )
 
 # ---------------------------------------------------------------------------
 # Anisotropie du vent + dispersion des surfaces brûlées
