@@ -14,7 +14,7 @@ import numpy as np
 import streamlit as st
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
-import moteur_feu as mf
+import moteur_feu_v2 as mf
 
 st.set_page_config(page_title="POS — risque feux de forêt", layout="wide")
 
