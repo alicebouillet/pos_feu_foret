@@ -41,7 +41,7 @@ python -m pip install numpy matplotlib streamlit
 Lancez ensuite l'interface principale :
 
 ```bash
-streamlit run app_feu_v2.py
+streamlit run interface_risque_avec_relief.py
 ```
 
 Streamlit affiche l'adresse locale de l'application dans le terminal (en général
@@ -52,26 +52,27 @@ Streamlit affiche l'adresse locale de l'application dans le terminal (en génér
 ### Interface principale — relief
 
 ```bash
-streamlit run app_feu_v2.py
+streamlit run interface_risque_avec_relief.py
 ```
 
-Utilise [`moteur_feu_v2.py`](moteur_feu_v2.py). Elle inclut le choix du relief
-(terrain plat, versant, vallée ou colline) et son effet sur la propagation.
+Utilise [`moteur_simulation_feu.py`](moteur_simulation_feu.py). Elle inclut le
+choix du relief (terrain plat, versant, vallée ou colline) et son effet sur la
+propagation.
 
 ### Interface basique — vent
 
 ```bash
-streamlit run modele_basique/app_feu.py
+streamlit run modele_sans_relief/interface_risque.py
 ```
 
-Utilise [`modele_basique/moteur_feu.py`](modele_basique/moteur_feu.py). Elle
+Utilise [`modele_sans_relief/moteur_simulation.py`](modele_sans_relief/moteur_simulation.py). Elle
 propose une présentation guidée du modèle et compare les effets du vent, sans
 réglage du relief. Les dépendances de cette variante sont listées dans
-[`modele_basique/requirements.txt`](modele_basique/requirements.txt).
+[`modele_sans_relief/requirements.txt`](modele_sans_relief/requirements.txt).
 
 ## Pipeline de vulnérabilité du bâti
 
-[`pipeline_vulnerabilite.py`](pipeline_vulnerabilite.py) est un traitement SIG
+[`pipeline_vegetation_batiments.py`](pipeline_vegetation_batiments.py) est un traitement SIG
 distinct de la simulation sur grille. Il sélectionne les bâtiments résidentiels
 d'une commune dans une base BD TOPO, crée des couronnes autour des emprises,
 télécharge des orthophotos IRC/RVB depuis le service WMS de la Géoplateforme,
@@ -90,7 +91,7 @@ python -m pip install geopandas pyogrio rasterio rasterstats requests pillow num
 Puis lancez :
 
 ```bash
-python pipeline_vulnerabilite.py
+python pipeline_vegetation_batiments.py
 ```
 
 Le traitement écrit ses résultats dans `sortie_<commune>/` (GeoPackages,
@@ -98,12 +99,12 @@ rasters, CSV et images). Il nécessite un accès réseau pour les requêtes WMS.
 
 ## Organisation du dépôt
 
-- [`app_feu_v2.py`](app_feu_v2.py) : interface Streamlit principale avec relief.
-- [`moteur_feu_v2.py`](moteur_feu_v2.py) : modèle de propagation et calcul du
+- [`interface_risque_avec_relief.py`](interface_risque_avec_relief.py) : interface Streamlit principale avec relief.
+- [`moteur_simulation_feu.py`](moteur_simulation_feu.py) : modèle de propagation et calcul du
   risque utilisé par l'interface principale.
-- [`modele_basique/`](modele_basique/) : variante d'interface et copie du moteur
+- [`modele_sans_relief/`](modele_sans_relief/) : variante d'interface et moteur
   sans relief.
-- [`pipeline_vulnerabilite.py`](pipeline_vulnerabilite.py) : pipeline de
+- [`pipeline_vegetation_batiments.py`](pipeline_vegetation_batiments.py) : pipeline de
   caractérisation géospatiale de la végétation autour des bâtiments.
 - [`INVENTAIRE_FICHIERS.md`](INVENTAIRE_FICHIERS.md) : description plus détaillée
   des fichiers du dépôt.
@@ -124,3 +125,10 @@ rasters, CSV et images). Il nécessite un accès réseau pour les requêtes WMS.
 Les résultats doivent donc être interprétés comme des sorties exploratoires
 permettant de comparer des scénarios au sein de ce prototype, et non comme une
 mesure absolue du risque réel.
+
+## Anciens chemins conservés
+
+Les anciens chemins du pipeline SIG et de la variante sans relief sont
+conservés comme relais de compatibilité. Les anciens chemins de l'interface
+principale et de son moteur ont été supprimés ; utilisez les noms explicites
+présentés dans ce README.

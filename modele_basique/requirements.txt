@@ -1,5 +1,5 @@
+# Ancien chemin conservé pour compatibilité.
+# Le fichier de référence est ../modele_sans_relief/requirements.txt.
 matplotlib
 numpy
 streamlit
-matplotlib
-dataclasses
